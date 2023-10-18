@@ -44,15 +44,15 @@ val_dataloader = DataLoader(val_dataset, shuffle=True, batch_size=16, collate_fn
 
 # hyperparameters
 batch_size = 16 # how many independent sequences will we process in parallel?
-block_size = 64 # what is the maximum context length for predictions?
+block_size = 512 # what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 512
-n_head = 3
-n_layer = 3
+n_head = 4
+n_layer = 4
 dropout = 0.2
 vocab_size = tokenizer.vocab_size
 output_dim = 2
@@ -200,18 +200,36 @@ model = GPTLanguageModel()
 m = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+# @torch.no_grad()
+# def estimate_loss(tr_xb, tr_yb, val_xb, val_yb):
+#     out = {}
+#     model.eval()
+#     for split in ['train', 'val']:
+#         losses = torch.zeros(eval_iters)
+#         for k in range(eval_iters):
+#             # X, Y = get_batch(split)
+#             logits, loss = model(xb, yb)
+#             losses[k] = loss.item()
+#         out[split] = losses.mean()
+#     model.train()
+#     return out
+
 def get_metric(pred, act):
     pred  = torch.argmax(pred,dim=1)
-    print(pred)
-    print(act)
-    print(sum(pred == act) / len(pred))
+    # print(pred)
+    # print(act)
+    print("accuracy", sum(pred == act) / len(pred))
     
 for step, batch in enumerate(train_dataloader):
     # print(batch.keys())
     xb, yb = batch['input_ids'], batch['labels']
     logits, loss = model(xb, yb)
     # print(logits)
-    print(loss)
+    print("loss",loss)
     get_metric(logits, yb)
-    if step == 10:
-        break
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+    if step == 15:
+        print("pred", torch.argmax(logits,dim=1))
+        print("actual", yb)
