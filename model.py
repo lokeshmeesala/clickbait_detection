@@ -17,10 +17,10 @@ batch_size = 32 # how many independent sequences will we process in parallel?
 block_size = 1024 # what is the maximum context length for predictions?
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-n_embd = 512
+n_embd = 256
 n_head = 4
 n_layer = 4
-dropout = 0.3
+dropout = 0.2
 output_dim = 2
 
 torch.manual_seed(1337)
@@ -137,15 +137,15 @@ class GPTLanguageModel(nn.Module):
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.classification_head = nn.Linear(vocab_size, output_dim)
         # self.classification_head = ClassificationHead(vocab_size, output_dim)
-    #     self.apply(self._init_weights)
+        self.apply(self._init_weights)
 
-    # def _init_weights(self, module):
-    #     if isinstance(module, nn.Linear):
-    #         torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-    #         if module.bias is not None:
-    #             torch.nn.init.zeros_(module.bias)
-    #     elif isinstance(module, nn.Embedding):
-    #         torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         # print(idx)

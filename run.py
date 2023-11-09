@@ -52,7 +52,7 @@ enc_model = enc_model.to(device)
 optimizer = torch.optim.AdamW(enc_model.parameters(), lr=learning_rate)
 criterion = torch.nn.CrossEntropyLoss()
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
-EPOCHS = 10
+EPOCHS = 2
 total_accu = None
 log_data = pd.DataFrame(columns=["epoch","batch_id", "split", "pres", "recal", "f1", "acc", "loss", "batch_size", "block_size", "learning_rate", "n_embd", "n_head", "n_layer", "dropout"])
 
