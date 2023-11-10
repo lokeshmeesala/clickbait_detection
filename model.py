@@ -9,19 +9,21 @@ from torch.nn import functional as F
 from datasets import load_dataset, Dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data.dataloader import DataLoader
+from params import *
 from utils import *
+
 # from run import vocab_size
 
 # hyperparameters
-batch_size = 32 # how many independent sequences will we process in parallel?
-block_size = 1024 # what is the maximum context length for predictions?
-learning_rate = 3e-4
+# batch_size = 32 # how many independent sequences will we process in parallel?
+# block_size = 1024 # what is the maximum context length for predictions?
+# learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-n_embd = 256
-n_head = 4
-n_layer = 4
-dropout = 0.2
-output_dim = 2
+# n_embd = 256
+# n_head = 4
+# n_layer = 4
+# dropout = 0.2
+# output_dim = 2
 
 torch.manual_seed(1337)
 print(f"DEVICE {device}")
@@ -96,11 +98,7 @@ class ClassificationHead(nn.Module):
     def __init__(self, input_size, output_size):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, 32),
-            nn.ReLU(),
-            nn.Linear(32, 8),
+            nn.Linear(input_size, 8),
             nn.ReLU(),
             nn.Linear(8, output_size),
         )
@@ -125,7 +123,7 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x))
         return x
 
-class GPTLanguageModel(nn.Module):
+class Encoder(nn.Module):
 
     def __init__(self, vocab_size):
         super().__init__()

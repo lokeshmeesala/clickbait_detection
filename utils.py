@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from datasets import load_dataset, Dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data.dataloader import DataLoader
+from params import *
 from model import *
 
 custom_random_seed = 1337
