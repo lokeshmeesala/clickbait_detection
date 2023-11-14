@@ -39,9 +39,12 @@ test_data_iter = tokenized_datasets['test'].remove_columns(['id', 'headline', 'b
 
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors='pt')
 
-train_dataloader = DataLoader(train_data_iter, shuffle=True, batch_size=batch_size, collate_fn=data_collator)
-val_dataloader = DataLoader(val_data_iter, shuffle=True, batch_size=batch_size, collate_fn=data_collator)
-test_dataloader = DataLoader(test_data_iter, shuffle=False, batch_size=batch_size, collate_fn=data_collator)
+train_dataloader = DataLoader(train_data_iter, shuffle=True, batch_size=batch_size, collate_fn=data_collator, 
+                              num_workers=2, pin_memory=True)
+val_dataloader = DataLoader(val_data_iter, shuffle=True, batch_size=batch_size, collate_fn=data_collator, 
+                            num_workers=2, pin_memory=True)
+test_dataloader = DataLoader(test_data_iter, shuffle=False, batch_size=batch_size, collate_fn=data_collator, 
+                             num_workers=2, pin_memory=True)
 
 
 ## Params
@@ -53,13 +56,17 @@ enc_model = Encoder(vocab_size)
 enc_model = enc_model.to(device)
 optimizer = torch.optim.AdamW(enc_model.parameters(), lr=learning_rate)
 criterion = torch.nn.CrossEntropyLoss()
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.5)
 EPOCHS = epochs  
 total_accu = None
 log_data = pd.DataFrame(columns=["epoch","batch_id", "split", "pres", "recal", "f1", "acc", "loss", "batch_size", "block_size", "learning_rate", "n_embd", "n_head", "n_layer", "dropout"])
-
+print("Device Count",torch.cuda.device_count())
 for epoch in range(1, EPOCHS + 1):
     epoch_start_time = time.time()
+    # print("************************************************")
+    # print("Current Lr", scheduler.get_last_lr())
+    # print("GPU USAGE", torch.cuda.memory_summary())
+    # print("************************************************")
     log_data = train(train_dataloader, enc_model, optimizer, criterion, epoch, device, log_data)
     cm, pres, recal, f1, acc = evaluate(val_dataloader, enc_model, criterion, device)
     
@@ -91,9 +98,9 @@ log_data = append_log(log_data, 0, 0, "test",
                       test_pres, test_recal, test_f1, test_acc, torch.tensor(0.0))
 
 time_stamp = datetime.now().strftime("%m_%d_%HH_%MM_%SS")
-log_data.to_csv("logs/log_data_"+time_stamp+".csv", index=False)
+# log_data.to_csv("logs/log_data_"+time_stamp+".csv", index=False)
 print_cf(*test_cm)
-torch.save(enc_model, "model_checkpoints/custom_models/model_"+time_stamp+".pt")
+# torch.save(enc_model, "model_checkpoints/custom_models/model_"+time_stamp+".pt")
 
 with open("logs/model_summary_"+time_stamp+".txt", "w") as f:
     f.write(repr(enc_model))

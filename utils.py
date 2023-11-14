@@ -18,7 +18,7 @@ from model import *
 custom_random_seed = 1337
 
 def load_tokenizer(model_path):
-    tokenizer = AutoTokenizer.from_pretrained(model_path, return_tensors='pt')
+    tokenizer = AutoTokenizer.from_pretrained(model_path, return_tensors='pt', use_fast=False)
     return tokenizer
 
 def load_data(data_path):
