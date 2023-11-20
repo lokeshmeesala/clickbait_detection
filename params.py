@@ -1,10 +1,10 @@
-epochs = 2
-data_path =  'data/click_bait_full.csv' 
+epochs = 3
+data_path =  'data/click_bait_full_v2.csv' 
 checkpoint  =  'model_checkpoints/bert-base-uncased'
-batch_size  = 32
+batch_size  = 64
 block_size  = 640
 learning_rate  = 3e-4
-n_embd  = 256
+n_embd  = 132
 n_head  = 6
 n_layer  = 6
 dropout  = 0.3

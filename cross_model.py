@@ -51,26 +51,49 @@ class Head(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x_head, x_body):
         #print("\t\t\tin head", self.i)
         # input of size (batch, time-step, channels)
         # output of size (batch, time-step, head size)
-        B,T,C = x.shape
-        k = self.key(x)   # (B,T,hs)
-        #print("\t\t\tk.shape",k.shape)
-        q = self.query(x) # (B,T,hs)
-        #print("\t\t\tq.shape",q.shape)
+        # B,T,C = x_head.shape
+        k_head = self.key(x_head)   # (B,T,hs)
+        #print("\t\t\tk_head.shape",k_head.shape)
+        # q_body = self.query(x_body) # (B,T,hs) <----- CROSS ATTENTION
+        q_head = self.query(x_head) # (B,T,hs) <----- SELF ATTENTION
+        #print("\t\t\tq_body.shape",q_body.shape)
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
-        wei = F.softmax(wei, dim=-1) # (B, T, T)
-        wei = self.dropout(wei)
+        wei_head = q_head @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        #print("wei_head.shape",wei_head.shape)
+        wei_head = wei_head.masked_fill(self.tril[:x_head.shape[1], :x_head.shape[1]] == 0, float('-inf')) # (B, T, T)
+        wei_head = F.softmax(wei_head, dim=-1) # (B, T, T)
+        wei_head = self.dropout(wei_head)
         # perform the weighted aggregation of the values
-        v = self.value(x) # (B,T,hs)
-        #print("\t\t\tv.shape",v.shape)
-        out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
-        #print("\t\t\tout.shape",out.shape)
-        return out
+        v_head = self.value(x_head) # (B,T,hs)
+        #print("\t\t\tv.shape",v_head.shape)
+        out_head = wei_head @ v_head # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        
+        
+        k_body = self.key(x_body)   # (B,T,hs)
+        #print("\t\t\tk_body.shape",k_body.shape)
+        q_body = self.query(x_body) # (B,T,hs) <----- SELF ATTENTION
+        # q_head = self.query(x_head) # (B,T,hs) <-----  CROSS ATTENTION
+        #print("\t\t\tq_head.shape",q_head.shape)
+        # compute attention scores ("affinities")
+        wei_body = q_body @ k_body.transpose(-2,-1) * k_body.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        #print("wei_body.shape",wei_body.shape)
+        wei_body = wei_body.masked_fill(self.tril[:x_body.shape[1], :x_body.shape[1]] == 0, float('-inf')) # (B, T, T)
+        wei_body = F.softmax(wei_body, dim=-1) # (B, T, T)
+        wei_body = self.dropout(wei_body)
+        # perform the weighted aggregation of the values
+        v_body = self.value(x_body) # (B,T,hs)
+        #print("\t\t\tv.shape",v_body.shape)
+        out_body = wei_body @ v_body # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        
+        
+        #print("\t\t\out_head.shape",out_head.shape)
+        #print("\t\t\out_body.shape",out_body.shape)
+        # out = ((out_head+out_body)/2)
+        return out_head, out_body
 
 class MultiHeadAttention(nn.Module):
     """ multiple heads of self-attention in parallel """
@@ -81,14 +104,19 @@ class MultiHeadAttention(nn.Module):
         self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x_head, x_body):
         #print("\t\tin sa")
-        #print("\t\tx.shape", x.shape)
-        out = torch.cat([h(x) for h in self.heads], dim=-1)
+        # #print("\t\tx.shape", x.shape)
+        all_outputs  = [h(x_head, x_body) for h in self.heads]
+        out_head = torch.cat([i[0] for i in all_outputs], dim=-1)
+        out_body = torch.cat([i[1] for i in all_outputs], dim=-1)    
+        # out_head, out_body = torch.cat([h(x_head, x_body) for h in self.heads], dim=-1)
         #print("\t\tafter heads")
-        #print("\t\tout.shape", out.shape)
-        out = self.dropout(self.proj(out))
-        return out
+        #print("\t\tout_head.shape", out_head.shape)
+        #print("\t\tout_body.shape", out_body.shape)
+        out_head = self.dropout(self.proj(out_head))
+        out_body = self.dropout(self.proj(out_body))
+        return out_head, out_body
 
 class FeedForward(nn.Module):
     """ a simple linear layer followed by a non-linearity """
@@ -138,15 +166,23 @@ class Block(nn.Module):
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
 
-    def forward(self, x):
+    def forward(self, full_x):
+        x_head, x_body = full_x[0], full_x[1]
         #print("in block", self.i)
-        #print("\tx before sa", x.shape)
-        x = x + self.ln1(self.sa(x))
-        #print("\tx after sa", x.shape)
-        x = x + self.ln2(self.ffwd(x))
-        return x
+        # #print("\tx before sa", x.shape)
+        # x = x + self.ln1(self.sa(x_head, x_body))  ## ADD RES CONNECTION
+        x_head, x_body = self.sa(x_head, x_body)
+        
+        x_head = x_head + self.ln1(x_head)
+        x_head = x_head + self.ln2(self.ffwd(x_head))
 
-class Encoder(nn.Module):
+        x_body = x_body + self.ln1(x_body)
+        x_body = x_body + self.ln2(self.ffwd(x_body))
+
+        # #print("\tx after sa", x.shape)
+        return [x_head, x_body]
+
+class CrossEncoder(nn.Module):
 
     def __init__(self, vocab_size):
         super().__init__()
@@ -169,24 +205,42 @@ class Encoder(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx_head, idx_body, targets=None):
         # print(idx)
-        B, T = idx.shape
-        #print("idx.shape", idx.shape)
-        #print("min",idx[0].min())
-        #print("max",idx[0].max())
+        # B, T = x_head.shape
+        #print("idx_head.shape", idx_head.shape)
+        #print("idx_body.shape", idx_body.shape)
+        # #print("min",idx[0].min())
+        # #print("max",idx[0].max())
         # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx) # (B,T,C)
-        #print("tok_emb.shape", tok_emb.shape)
+        tok_emb_head = self.token_embedding_table(idx_head) # (B,T,C)
+        tok_emb_body = self.token_embedding_table(idx_body) # (B,T,C)
+
+        #print("tok_emb_head.shape", tok_emb_head.shape)
+        #print("tok_emb_body.shape", tok_emb_body.shape)
         # #print("TOKEN EMBED CHECKED")
-        pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
-        #print("pos_emb.shape", pos_emb.shape)
-        x = tok_emb + pos_emb # (B,T,C)
-        #print("before blocks x.shape", x.shape)
-        x = self.blocks(x) # (B,T,C)
-        #print("after blocks x.shape", x.shape)
-        #print("before ln_f x.shape", x.shape)
-        x = self.ln_f(x) # (B,T,C)
+        pos_emb_head = self.position_embedding_table(torch.arange(idx_head.shape[1], device=device)) # (T,C)
+        pos_emb_body = self.position_embedding_table(torch.arange(idx_body.shape[1], device=device)) # (T,C)
+
+        #print("pos_emb_head.shape", pos_emb_head.shape)
+        #print("pos_emb_body.shape", pos_emb_body.shape)
+
+        x_head = tok_emb_head + pos_emb_head # (B,T,C)
+        x_body = tok_emb_body + pos_emb_body # (B,T,C)
+        #print("before blocks x_head.shape", x_head.shape)
+        #print("before blocks x_body.shape", x_body.shape)
+        full_x = [x_head, x_body]
+        full_x = self.blocks(full_x) # (B,T,C)
+        
+        x_head, x_body = full_x[0], full_x[1]
+        #print("after blocks x_head.shape", x_head.shape)
+        #print("before ln_f x_head.shape", x_head.shape)
+        #print("after blocks x_body.shape", x_body.shape)
+        #print("before ln_f x_body.shape", x_body.shape)
+        # x_head = self.ln_f(x_head) # (B,T,C)
+        # x_body = self.ln_f(x_body) # (B,T,C)
+        # x = ((x_head+x_body)/2)
+        x = self.ln_f(x_head)
         #print("after ln_f x.shape", x.shape)
         #print("before lm_head x.shape", x.shape)
         # x = self.lm_head(x) # (B,T,vocab_size)
