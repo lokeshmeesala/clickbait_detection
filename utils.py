@@ -59,11 +59,20 @@ def train(dataloader, model, optimizer, criterion, epoch, device, log_data):
 
         label =  batch['label']
         label = label.to(device)
+        predicted_label = model(idx_head, idx_body)
         
+        # text, label = batch['input_ids_seq1'], batch['label']
+        # text, label = text.to(device), label.to(device)
+        # predicted_label = model(text)
+        
+        
+        
+        # print("label", label)
+        # print("predicted_label", predicted_label)
         total_label_ones += label.sum()
         total_label += len(label)
         total_label_zeros += len(label) - label.sum()
-        predicted_label = model(idx_head, idx_body)
+
         # if idx == 1: break
         ##print("Actual:", label)
         ##print("Predicted:", predicted_label.argmax(1))
@@ -121,9 +130,8 @@ def evaluate(dataloader, model, criterion, device):
     total_actuals = torch.tensor([]).to(device)
     
     with torch.no_grad():
-        # for idx, (label, text, offsets) in enumerate(dataloader):
         # for idx, batch in enumerate(dataloader):
-        #     text, label = batch['input_ids'], batch['labels']
+        #     text, label = batch['input_ids_seq1'], batch['label']
         #     text, label = text.to(device), label.to(device)
         #     predicted_label = model(text)
         #     ##print("Actual:", label)

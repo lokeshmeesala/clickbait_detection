@@ -6,7 +6,7 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-
+import os
 from datasets import load_dataset, Dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data.dataloader import DataLoader
@@ -15,13 +15,7 @@ from utils import *
 # from model import *
 from cross_model import *
 
-
-
 import pandas as pd
-
-
-datasets_train_test = load_data(data_path)
-tokenizer = load_tokenizer(checkpoint)
 
 # def tokenize_function(record):
 #     return tokenizer(record['headline'], truncation=True, max_length=block_size)
@@ -29,26 +23,45 @@ tokenizer = load_tokenizer(checkpoint)
 # def tokenize_function(record):
 #     return tokenizer(record['body'], truncation=True, max_length=block_size)
 
-def tokenize_function(example):
-    encoded_seq1 = tokenizer(example["headline"], return_tensors='pt', padding='max_length', truncation=True, max_length=120)
-    encoded_seq2 = tokenizer(example["body"], return_tensors='pt', padding='max_length', truncation=True, max_length=640)
-    return {"input_ids_seq1": encoded_seq1['input_ids'],
-            "attention_mask_seq1": encoded_seq1['attention_mask'],
-            "input_ids_seq2": encoded_seq2['input_ids'],
-            "attention_mask_seq2": encoded_seq2['attention_mask'],
-            "label": torch.tensor(example["label"])}
+tokenizer = load_tokenizer(checkpoint)
 
-tokenized_datasets = datasets_train_test.map(tokenize_function, batched=True)
+
+def tokenize_function(example):
+    encoded_seq1 = tokenizer(example["headline"], truncation=True, max_length=640)
+    encoded_seq2 = tokenizer(example["body"], truncation=True, max_length=640)
+    return {
+        "input_ids_seq1": encoded_seq1['input_ids'],
+        "attention_mask_seq1": encoded_seq1['attention_mask'],
+        "input_ids_seq2": encoded_seq2['input_ids'],
+        "attention_mask_seq2": encoded_seq2['attention_mask'],
+        "label": torch.tensor(example["label"])}
+
+tokenized_datasets_path = 'data/cbc_tokenized_datasets.pth'  # Replace with your file path
+
+if os.path.exists(tokenized_datasets_path):
+    print(f"The file at {tokenized_datasets_path} exists.")
+    tokenized_datasets = torch.load(tokenized_datasets_path)
+else:
+    datasets_train_test = load_data(data_path)
+    print(f"The file at {tokenized_datasets_path} does not exist.")
+    tokenized_datasets = datasets_train_test.map(tokenize_function, batched=True)
+    torch.save(tokenized_datasets, tokenized_datasets_path)
 
 train_data_iter = tokenized_datasets['train'].remove_columns(['id', 'headline', 'body'])
 test_data_iter = tokenized_datasets['test'].remove_columns(['id', 'headline', 'body'])
 
 # data_collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors='pt')
+# train_dataloader = DataLoader(train_data_iter, shuffle=True, batch_size=batch_size, collate_fn=data_collator, 
+#                               num_workers=2, pin_memory=True)
+# test_dataloader = DataLoader(test_data_iter, shuffle=False, batch_size=batch_size, collate_fn=data_collator, 
+#                              num_workers=2, pin_memory=True)
+
+
 def custom_collate_fn(batch):
-    input_ids_seq1 = torch.tensor([item["input_ids_seq1"] for item in batch])
-    attention_masks_seq1 = torch.tensor([item["attention_mask_seq1"] for item in batch])
-    input_ids_seq2 = torch.tensor([item["input_ids_seq2"] for item in batch])
-    attention_masks_seq2 = torch.tensor([item["attention_mask_seq2"] for item in batch])
+    input_ids_seq1 = [torch.tensor(item["input_ids_seq1"]) for item in batch]
+    attention_masks_seq1 = [torch.tensor(item["attention_mask_seq1"]) for item in batch]
+    input_ids_seq2 = [torch.tensor(item["input_ids_seq2"]) for item in batch]
+    attention_masks_seq2 = [torch.tensor(item["attention_mask_seq2"]) for item in batch]
     label = torch.tensor([item["label"] for item in batch])
 
     padded_seq1 = torch.nn.utils.rnn.pad_sequence(input_ids_seq1, batch_first=True, padding_value=tokenizer.pad_token_id)
@@ -64,15 +77,12 @@ def custom_collate_fn(batch):
         "attention_mask_seq2": padded_mask_seq2,
         "label": label
     }
-
-# train_dataloader = DataLoader(train_data_iter, shuffle=True, batch_size=batch_size, collate_fn=data_collator, 
-#                               num_workers=2, pin_memory=True)
-# test_dataloader = DataLoader(test_data_iter, shuffle=False, batch_size=batch_size, collate_fn=data_collator, 
-#                              num_workers=2, pin_memory=True)
+    
 train_dataloader = DataLoader(train_data_iter, shuffle=True, batch_size=batch_size, collate_fn=custom_collate_fn, 
                               num_workers=2, pin_memory=True)
 test_dataloader = DataLoader(test_data_iter, shuffle=False, batch_size=batch_size, collate_fn=custom_collate_fn, 
                              num_workers=2, pin_memory=True)
+
 
 
 ## Params

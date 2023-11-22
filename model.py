@@ -43,12 +43,112 @@ class Head(nn.Module):
     def __init__(self, head_size, i):
         super().__init__()
         self.i = i
+        self.key_head = nn.Linear(n_embd, head_size, bias=False)
+        self.query_head = nn.Linear(n_embd, head_size, bias=False)
+        self.value_head = nn.Linear(n_embd, head_size, bias=False)
+        
+        self.key_body = nn.Linear(n_embd, head_size, bias=False)
+        self.query_body = nn.Linear(n_embd, head_size, bias=False)
+        self.value_body = nn.Linear(n_embd, head_size, bias=False)
+
+        self.dropout = nn.Dropout(dropout)
+
+    # def forward(self, x_head, x_body):
+    #     #print("\t\t\tin head", self.i)
+    #     # input of size (batch, time-step, channels)
+    #     # output of size (batch, time-step, head size)
+    #     # B,T,C = x_head.shape
+    #     k_head = self.key(x_head)   # (B,T,hs)
+    #     #print("\t\t\tk_head.shape",k_head.shape)
+    #     # q_body = self.query(x_body) # (B,T,hs) <----- CROSS ATTENTION
+    #     q_head = self.query(x_head) # (B,T,hs) <----- SELF ATTENTION
+    #     #print("\t\t\tq_body.shape",q_body.shape)
+    #     # compute attention scores ("affinities")
+    #     wei_head = q_head @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+    #     #print("wei_head.shape",wei_head.shape)
+    #     wei_head = wei_head.masked_fill(self.tril[:x_head.shape[1], :x_head.shape[1]] == 0, float('-inf')) # (B, T, T)
+    #     wei_head = F.softmax(wei_head, dim=-1) # (B, T, T)
+    #     wei_head = self.dropout(wei_head)
+    #     # perform the weighted aggregation of the values
+    #     v_head = self.value(x_head) # (B,T,hs)
+    #     #print("\t\t\tv.shape",v_head.shape)
+    #     out_head = wei_head @ v_head # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        
+        
+    #     k_body = self.key(x_body)   # (B,T,hs)
+    #     #print("\t\t\tk_body.shape",k_body.shape)
+    #     q_body = self.query(x_body) # (B,T,hs) <----- SELF ATTENTION
+    #     # q_head = self.query(x_head) # (B,T,hs) <-----  CROSS ATTENTION
+    #     #print("\t\t\tq_head.shape",q_head.shape)
+    #     # compute attention scores ("affinities")
+    #     wei_body = q_body @ k_body.transpose(-2,-1) * k_body.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+    #     #print("wei_body.shape",wei_body.shape)
+    #     wei_body = wei_body.masked_fill(self.tril[:x_body.shape[1], :x_body.shape[1]] == 0, float('-inf')) # (B, T, T)
+    #     wei_body = F.softmax(wei_body, dim=-1) # (B, T, T)
+    #     wei_body = self.dropout(wei_body)
+    #     # perform the weighted aggregation of the values
+    #     v_body = self.value(x_body) # (B,T,hs)
+    #     #print("\t\t\tv.shape",v_body.shape)
+    #     out_body = wei_body @ v_body # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        
+        
+    #     #print("\t\t\out_head.shape",out_head.shape)
+    #     #print("\t\t\out_body.shape",out_body.shape)
+    #     # out = ((out_head+out_body)/2)
+    #     return out_head, out_body
+    
+    def forward(self, x_head):
+        #print("\t\t\tin head", self.i)
+        B_head,T_head,C_head = x_head.shape
+        # B_body,T_body,C_body = x_body.shape
+        
+        k_head = self.key_head(x_head)
+        q_head = self.query_head(x_head)
+        v_head = self.value_head(x_head)
+        # print("\t\t\tk_head.shape",k_head.shape)
+        # print("\t\t\tq_head.shape",q_head.shape)
+        # print("\t\t\tv_head.shape",v_head.shape)
+        
+        # k_body = self.key_body(x_body)
+        # q_body = self.query_body(x_body)
+        # v_body = self.value_body(x_body)
+        # print("\t\t\tk_body.shape",k_body.shape)
+        # print("\t\t\tq_body.shape",q_body.shape)
+        # print("\t\t\tv_body.shape",v_body.shape)
+        
+        
+        # ## HEAD - CROSS ATTENTION
+        # wei_head = q_head @ k_body.transpose(-2,-1) * k_body.shape[-1]**-0.5 #B T 16 @ B, 16, T
+        # # print("\t\t\twei_head.shape",wei_head.shape)
+        # wei_head = F.softmax(wei_head, dim=-1)
+        # out_head = wei_head @ v_body
+        # # print("\t\t\tout_head.shape",out_head.shape)
+        
+        ## HEAD - SELF ATTENTION
+        wei_head = q_head @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 #B T 16 @ B, 16, T
+        # print("\t\t\twei_head.shape",wei_head.shape)
+        wei_head = F.softmax(wei_head, dim=-1)
+        wei_head = self.dropout(wei_head)
+        out_head = wei_head @ v_head
+        # print("\t\t\tout_head.shape",out_head.shape)
+        
+        # ## BODY - CROSS ATTENTION
+        # wei_body = q_body @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 #B T 16 @ B, 16, T
+        # # print("\t\t\twei_body.shape",wei_body.shape)
+        # wei_body = F.softmax(wei_body, dim=-1)
+        # out_body = wei_body @ v_head
+        # # print("\t\t\tout_body.shape",out_body.shape)
+        return out_head
+
+class Head(nn.Module):
+    """ one head of self-attention """
+
+    def __init__(self, head_size, i):
+        super().__init__()
+        self.i = i
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
-        # self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
-        self.register_buffer('tril', torch.ones(block_size, block_size))
-
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -62,7 +162,7 @@ class Head(nn.Module):
         #print("\t\t\tq.shape",q.shape)
         # compute attention scores ("affinities")
         wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+        # wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
         wei = F.softmax(wei, dim=-1) # (B, T, T)
         wei = self.dropout(wei)
         # perform the weighted aggregation of the values
