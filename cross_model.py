@@ -11,23 +11,12 @@ from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data.dataloader import DataLoader
 from params import *
 from utils import *
-
-# from run import vocab_size
-
-# hyperparameters
-# batch_size = 32 # how many independent sequences will we process in parallel?
-# block_size = 1024 # what is the maximum context length for predictions?
-# learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-# n_embd = 256
-# n_head = 4
-# n_layer = 4
-# dropout = 0.2
-# output_dim = 2
 
 torch.manual_seed(1337)
 print(f"DEVICE {device}")
-class Head(nn.Module):
+
+class SA_Head(nn.Module):
     """ one head of self-attention """
 
     def __init__(self, head_size, i):
@@ -43,8 +32,6 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x_head, x_body):
-        #print("\t\t\tin head", self.i)
-
         k_head = self.key_head(x_head)
         q_head = self.query_head(x_head)
         v_head = self.value_head(x_head)
@@ -53,59 +40,95 @@ class Head(nn.Module):
         q_body = self.query_body(x_body)
         v_body = self.value_body(x_body)
 
-        ## HEAD - SELF ATTENTION
-        # wei_head = q_head @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-        # wei_head = F.softmax(wei_head, dim=-1) # (B, T, T)
-        # wei_head = self.dropout(wei_head) # (B,T,hs)
-        # out_head = wei_head @ v_head 
+        # HEAD - SELF ATTENTION
+        affinity_head = q_head @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        affinity_head = F.softmax(affinity_head, dim=-1) # (B, T, T)
+        affinity_head = self.dropout(affinity_head) # (B,T,hs)
+        out_head = affinity_head @ v_head 
+        
+        # BODY - SELF ATTENTION
+        affinity_body = q_body @ k_body.transpose(-2,-1) * k_body.shape[-1]**-0.5 #B T 16 @ B, 16, T
+        affinity_body = F.softmax(affinity_body, dim=-1)
+        affinity_body = self.dropout(affinity_body)
+        out_body = affinity_body @ v_body
+        return (out_head,out_body)
+  
+class CA_Head(nn.Module):
+    def __init__(self, head_size, i):
+        super().__init__()
+        self.i = i
+        self.key_head = nn.Linear(n_embd, head_size, bias=False)
+        self.query_head = nn.Linear(n_embd, head_size, bias=False)
+        self.value_head = nn.Linear(n_embd, head_size, bias=False)
+        
+        self.key_body = nn.Linear(n_embd, head_size, bias=False)
+        self.query_body = nn.Linear(n_embd, head_size, bias=False)
+        self.value_body = nn.Linear(n_embd, head_size, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x_head, x_body):
+        k_head = self.key_head(x_head)
+        q_head = self.query_head(x_head)
+        v_head = self.value_head(x_head)
+                
+        k_body = self.key_body(x_body)
+        q_body = self.query_body(x_body)
+        v_body = self.value_body(x_body)
         
         ## HEAD - CROSS ATTENTION
-        wei_head = q_head @ k_body.transpose(-2,-1) * k_body.shape[-1]**-0.5 #B T 16 @ B, 16, T
-        wei_head = F.softmax(wei_head, dim=-1)
-        wei_head = self.dropout(wei_head)
-        out_head = wei_head @ v_body
+        affinity_head = q_head @ k_body.transpose(-2,-1) * k_body.shape[-1]**-0.5 #B T 16 @ B, 16, T
+        affinity_head = F.softmax(affinity_head, dim=-1)
+        affinity_head = self.dropout(affinity_head)
+        out_head = affinity_head @ v_body
         
         ## BODY - CROSS ATTENTION
-        wei_body = q_body @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 #B T 16 @ B, 16, T
-        wei_body = F.softmax(wei_body, dim=-1)
-        wei_body = self.dropout(wei_body)
-        out_body = wei_body @ v_head
-        # print("\t\t\tout_body.shape",out_body.shape)
+        affinity_body = q_body @ k_head.transpose(-2,-1) * k_head.shape[-1]**-0.5 #B T 16 @ B, 16, T
+        affinity_body = F.softmax(affinity_body, dim=-1)
+        affinity_body = self.dropout(affinity_body)
+        out_body = affinity_body @ v_head
         
         return (out_head,out_body)
     
-class MultiHeadAttention(nn.Module):
-    """ multiple heads of self-attention in parallel """
+class MultiHeadSAAttention(nn.Module):
 
     def __init__(self, num_heads, head_size):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size, i) for i in range(num_heads)])
+        self.sa_heads = nn.ModuleList([SA_Head(head_size, i) for i in range(num_heads)])
         self.proj_head = nn.Linear(head_size * num_heads, n_embd)
         self.proj_body = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x_head, x_body):
-        #print("\t\tin sa")
-        # #print("\t\tx.shape", x.shape)
-        all_outputs  = [h(x_head, x_body) for h in self.heads]
+        all_outputs  = [h(x_head, x_body) for h in self.sa_heads]
         out_head = torch.cat([i[0] for i in all_outputs], dim=-1)
         out_body = torch.cat([i[1] for i in all_outputs], dim=-1)
-        #print("\t\tafter heads")
-        #print("\t\tout_head.shape", out_head.shape)
-        #print("\t\tout_body.shape", out_body.shape)
+        out_head = self.dropout(self.proj_head(out_head))
+        out_body = self.dropout(self.proj_body(out_body))
+        return (out_head,out_body)
+
+class MultiHeadCAAttention(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.ca_heads = nn.ModuleList([CA_Head(head_size, i) for i in range(num_heads)])
+        self.proj_head = nn.Linear(head_size * num_heads, n_embd)
+        self.proj_body = nn.Linear(head_size * num_heads, n_embd)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x_head, x_body):
+        all_outputs  = [h(x_head, x_body) for h in self.ca_heads]
+        out_head = torch.cat([i[0] for i in all_outputs], dim=-1)
+        out_body = torch.cat([i[1] for i in all_outputs], dim=-1)
         out_head = self.dropout(self.proj_head(out_head))
         out_body = self.dropout(self.proj_body(out_body))
         return (out_head,out_body)
     
 class Block(nn.Module):
-    """ Transformer block: communication followed by computation """
-
     def __init__(self, n_embd, n_head, i):
-        # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
         head_size = n_embd // n_head
         self.i = i
-        self.sa = MultiHeadAttention(n_head, head_size)
+        self.sa = MultiHeadSAAttention(n_head, head_size)
+        self.ca = MultiHeadCAAttention(n_head, head_size)
         self.ffwd_head = FeedForward(n_embd)
         self.ffwd_body = FeedForward(n_embd)
         self.ln1_head = nn.LayerNorm(n_embd)
@@ -116,25 +139,23 @@ class Block(nn.Module):
     def forward(self, x_full):
         x_head = x_full[0]
         x_body = x_full[1]
-        # x_body = full_x[1]
-        #print("in block", self.i)
-        # #print("\tx before sa", x.shape)
-        # x = x + self.ln1(self.sa(x_head, x_body))  ## ADD RES CONNECTION
-        # x_head = self.sa(x_head)[0]
+        
         sa_x_head, sa_x_body = self.sa(x_head,x_body)
         x_head = x_head + self.ln1_head(sa_x_head)
         x_head = x_head + self.ln2_head(self.ffwd_head(x_head))
-        
         x_body = x_body + self.ln1_body(sa_x_body)
         x_body = x_body + self.ln2_body(self.ffwd_body(x_body))
+        
+        ca_x_head, ca_x_body = self.ca(x_head,x_body)
+        x_head = x_head + self.ln1_head(ca_x_head)
+        x_head = x_head + self.ln2_head(self.ffwd_head(x_head))
+        x_body = x_body + self.ln1_body(ca_x_body)
+        x_body = x_body + self.ln2_body(self.ffwd_body(x_body))
 
-        # #print("\tx after sa", x.shape)
         x_full = [x_head, x_body]
         return x_full
 
 class FeedForward(nn.Module):
-    """ a simple linear layer followed by a non-linearity """
-
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
@@ -151,15 +172,17 @@ class ClassificationHead(nn.Module):
     def __init__(self, input_size):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(2*input_size, 128),
+            nn.Linear(2*input_size, 4*input_size),
             nn.ReLU(),
-            nn.Linear(128, 64),
+            nn.Linear(4*input_size, input_size),
             nn.Dropout(dropout),
             nn.ReLU(),
-            nn.Linear(64, 16),
+            nn.Linear(input_size, input_size//2),
             nn.Dropout(dropout),
             nn.ReLU(),
-            nn.Linear(16, 2),
+            nn.Linear(input_size//2, input_size//4),
+            nn.ReLU(),
+            nn.Linear(input_size//4, 2),
             nn.Sigmoid()
         )
 
@@ -169,16 +192,17 @@ class ClassificationHead(nn.Module):
 
 class CrossEncoder(nn.Module):
 
-    def __init__(self, vocab_size):
+    def __init__(self, vocab_size, custom_embeddings=None):
         super().__init__()
-        # each token directly reads off the logits for the next token from a lookup table
+        self.use_custom_embeddings = False
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        if custom_embeddings != None:
+            self.use_custom_embeddings = True
+            self.custom_embedding_table = nn.Embedding.from_pretrained(custom_embeddings, freeze=True)
+            
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head, i=i) for i in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd) # final layer norm
-        # self.lm_head = nn.Linear(n_embd, vocab_size)
-        # self.classification_head = nn.Linear(vocab_size, output_dim)
-        # self.classification_head = nn.Linear(n_embd, output_dim)
+        self.ln_f = nn.LayerNorm(n_embd)
         self.classification_head = ClassificationHead(n_embd)
         self.apply(self._init_weights)
 
@@ -190,74 +214,33 @@ class CrossEncoder(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx_head, idx_body, targets=None):
-        # print(idx)
-        # B, T = x_head.shape
-        #print("idx_head.shape", idx_head.shape)
-        #print("idx_body.shape", idx_body.shape)
-        # #print("min",idx[0].min())
-        # #print("max",idx[0].max())
-        # idx and targets are both (B,T) tensor of integers
-        tok_emb_head = self.token_embedding_table(idx_head) # (B,T,C)
-        tok_emb_body = self.token_embedding_table(idx_body) # (B,T,C)
+    def forward(self, idx_head, idx_body):
+        tok_emb_head = self.token_embedding_table(idx_head)
+        tok_emb_body = self.token_embedding_table(idx_body)
 
-        #print("tok_emb_head.shape", tok_emb_head.shape)
-        #print("tok_emb_body.shape", tok_emb_body.shape)
-        # #print("TOKEN EMBED CHECKED")
-        pos_emb_head = self.position_embedding_table(torch.arange(idx_head.shape[1], device=device)) # (T,C)
-        pos_emb_body = self.position_embedding_table(torch.arange(idx_body.shape[1], device=device)) # (T,C)
+        pos_emb_head = self.position_embedding_table(torch.arange(idx_head.shape[1], device=device))
+        pos_emb_body = self.position_embedding_table(torch.arange(idx_body.shape[1], device=device))
 
-        #print("pos_emb_head.shape", pos_emb_head.shape)
-        #print("pos_emb_body.shape", pos_emb_body.shape)
+        if self.use_custom_embeddings:
+            cus_emb_head = self.custom_embedding_table(idx_head)
+            cus_emb_body = self.custom_embedding_table(idx_body)
+            x_head = tok_emb_head + cus_emb_head + pos_emb_head
+            x_body = tok_emb_body + cus_emb_body + pos_emb_body
+        
+        else:
+            x_head = tok_emb_head + pos_emb_head
+            x_body = tok_emb_body + pos_emb_body
+        
 
-        x_head = tok_emb_head + pos_emb_head # (B,T,C)
-        x_body = tok_emb_body + pos_emb_body # (B,T,C)
-        #print("before blocks x_head.shape", x_head.shape)
-        #print("before blocks x_body.shape", x_body.shape)
         x_full = [x_head, x_body]
-        x_full = self.blocks(x_full) # (B,T,C)
+        x_full = self.blocks(x_full)
         x_head = x_full[0]
         x_body = x_full[1]
-        # print("x_head", x_head.shape)
-        # print("x_body", x_body.shape)
-        # x_body = x_full[1]
-        # x_body = full_x[1]
-        #print("after blocks x_head.shape", x_head.shape)
-        #print("before ln_f x_head.shape", x_head.shape)
-        #print("after blocks x_body.shape", x_body.shape)
-        #print("before ln_f x_body.shape", x_body.shape)
-        # x_head = self.ln_f(x_head) # (B,T,C)
-        # x_body = self.ln_f(x_body) # (B,T,C)
-        # x = ((x_head+x_body)/2)
+        
         x_head = self.ln_f(x_head)
         x_body = self.ln_f(x_body)
-        #print("after ln_f x.shape", x.shape)
-        #print("before lm_head x.shape", x.shape)
-        # x = self.lm_head(x) # (B,T,vocab_size)
-        #print("after lm_head x.shape", x.shape)
-        #print("before pooled x.shape", x.shape)
-        # pooled_output = torch.mean(x_head, dim=1)
+        
         pooled_output  = torch.cat([x_head.mean(dim=1), x_body.mean(dim=1)], dim=1)
-        #print("after pooled pooled_output.shape", pooled_output.shape)
-        # #print("1",pooled_output.shape,pooled_output)
-        #print("before classification_head pooled_output.shape", pooled_output.shape)
+        
         logits = self.classification_head(pooled_output)
-        #print("after classification_head logits.shape", logits.shape)
-        
-        # x = self.blocks(x_head) # (B,T,C)
-        # #print("after blocks x.shape", x.shape)
-        # #print("before ln_f x.shape", x.shape)
-        # x = self.ln_f(x) # (B,T,C)
-        # #print("after ln_f x.shape", x.shape)
-        # #print("before lm_head x.shape", x.shape)
-        # # x = self.lm_head(x) # (B,T,vocab_size)
-        # #print("after lm_head x.shape", x.shape)
-        # #print("before pooled x.shape", x.shape)
-        # pooled_output = torch.mean(x, dim=1)
-        # #print("after pooled pooled_output.shape", pooled_output.shape)
-        # # #print("1",pooled_output.shape,pooled_output)
-        # #print("before classification_head pooled_output.shape", pooled_output.shape)
-        # logits = self.classification_head(pooled_output)
-        # #print("after classification_head logits.shape", logits.shape)
-        
         return logits
