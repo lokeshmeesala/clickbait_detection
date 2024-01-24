@@ -1,3 +1,3 @@
 # clickbait_detection
 
-project_poster.pdf
+[embed]project_poster.pdf[/embed]
