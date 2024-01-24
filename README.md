@@ -1,3 +1,3 @@
 # clickbait_detection
 
-[embed]project_poster.pdf[/embed]
+[embed]https://github.com/lokeshmeesala/clickbait_detection/blob/dev/project_poster.pdf[/embed]
