@@ -1,0 +1,12 @@
+epochs : 3
+data_path :  'data/click_bait_full_v2.csv' 
+tokenized_datasets_path : 'data/cbc_tokenized_datasets_v2.pth'
+checkpoint  :  'bert-base-uncased'
+batch_size  : 64
+block_size  : 640
+learning_rate  : 0.0003
+n_embd  : 180
+n_head  : 2
+n_layer  : 2
+dropout  : 0.2
+output_dim  : 2
