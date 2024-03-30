@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 import torch
 import torch.nn as nn
+from torchmetrics import Accuracy, ConfusionMatrix
 from torch.nn import functional as F
 import os
 from datasets import load_dataset, Dataset, DatasetDict
@@ -39,11 +40,9 @@ optimizer = torch.optim.AdamW(enc_model.parameters(), lr=params["learning_rate"]
 loss_fn = torch.nn.CrossEntropyLoss()
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
 EPOCHS = params["epochs"]  
-scheduler_metric = None
-log_data = pd.DataFrame(columns=["epoch","batch_id", "split", "pres", "recall", "f1", "acc", "loss", "batch_size", "block_size", "learning_rate", "n_embd", "n_head", "n_layer", "dropout"])
-
-
-
+scheduler_thres = 0.0
+# metric_fn = Accuracy(task="binary", num_classes=2).to(device)
+metric_fn = ConfusionMatrix(task="binary", num_classes=2).to(device)
 
 
 data_handler = utility.DataHandler(params, tokenizer)
@@ -59,7 +58,7 @@ with mlflow.start_run() as run:
         "learning_rate": params["learning_rate"],
         "batch_size": params["batch_size"],
         "loss_function": loss_fn.__class__.__name__,
-        "metric_function": "Accuracy",
+        "metric_function": metric_fn.__class__.__name__,
         "optimizer": "AdamW",
     }
 
@@ -75,33 +74,10 @@ with mlflow.start_run() as run:
 
     for epoch in range(1, EPOCHS + 1):
         epoch_start_time = time.time()
-        log_data = utility.train(train_dataloader, enc_model, optimizer, loss_fn, epoch, device, log_data)
-        test_cm, test_pres, test_recall, test_f1, test_acc, test_loss = utility.evaluate(test_dataloader, enc_model, loss_fn, device)
-        
-        log_data = utility.append_log(log_data, epoch, 0, "test", 
-                                    test_pres, test_recall, test_f1, test_acc, test_loss)
-        
-        
-        if scheduler_metric is not None and scheduler_metric > test_f1.item():
-            scheduler.step()
-        else:
-            scheduler_metric = test_f1.item()
-        print("-" * 70)
-        print(
-            "| end of epoch {:3d} | time: {:5.2f}s "
-            "| test accuracy {:8.3f} "
-            "| test f1-score {:8.3f} "
-            "| test loss {:8.3f}".format(
-                epoch, time.time() - epoch_start_time, test_acc.item(), test_f1.item(), test_loss.item()
-            )
-        )
-        utility.print_cf(*test_cm)
-        print("=" * 70)
-        
+        utility.train(train_dataloader, enc_model, optimizer, loss_fn, metric_fn, epoch, device)
+        utility.evaluate(test_dataloader, enc_model, loss_fn, metric_fn, device, epoch)
 
-    # time_stamp = datetime.now().strftime("%m_%d_%HH_%MM_%SS")
-    log_data.to_csv("logs/log_data_"+time_stamp+".csv", index=False)
-    # print_cf(*test_cm)
+    time_stamp = datetime.now().strftime("%m_%d_%HH_%MM_%SS")
     torch.save(enc_model, "model_checkpoints/custom_models/model_"+time_stamp+".pt")
 
     mlflow.pytorch.log_model(enc_model, "model")

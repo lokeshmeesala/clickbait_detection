@@ -1,4 +1,4 @@
-epochs : 3
+epochs : 2
 data_path :  'data/click_bait_full_v2.csv' 
 tokenized_datasets_path : 'data/cbc_tokenized_datasets_v2.pth'
 checkpoint  :  'bert-base-uncased'

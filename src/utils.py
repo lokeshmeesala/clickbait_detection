@@ -37,19 +37,12 @@ def load_data(data_path):
     })
     return datasets_train_test
 
-def train(dataloader, model, optimizer, loss_fn, epoch, device, log_data):
+def train(dataloader, model, optimizer, loss_fn, metrics_fn, epoch, device):
     model.train()
-    # total_acc, total_count, 
-    total_loss = 0
-    total_label = 0
-    total_label_ones = 0
-    total_label_zeros = 0
-    total_predictions = torch.tensor([]).to(device)
-    total_actuals = torch.tensor([]).to(device)
     log_interval = 100
-    start_time = time.time()
     for idx, batch in enumerate(dataloader):
-        optimizer.zero_grad()
+
+        # Gather Features and Labels
         idx_head = batch['input_ids_seq1']
         idx_head  = idx_head.to(device)
 
@@ -58,53 +51,37 @@ def train(dataloader, model, optimizer, loss_fn, epoch, device, log_data):
 
         label =  batch['label']
         label = label.to(device)
+
+        ## Run Model
         predicted_label = model(idx_head, idx_body)
-        
-        total_label_ones += label.sum()
-        total_label += len(label)
-        total_label_zeros += len(label) - label.sum()
         loss = loss_fn(predicted_label, label)
+        [tn,fp,fn,tp], pres, recall, f1, acc_metric = get_cm_metrics(metrics_fn(predicted_label.argmax(1), label))
+
+        ## Propagate Loss
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
         optimizer.step()
-        
-        total_predictions = torch.cat([total_predictions, predicted_label.argmax(1)])
-        total_actuals = torch.cat([total_actuals, label])
+        optimizer.zero_grad()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
 
-        total_loss += loss
-        if idx % log_interval == 0 and idx > 0:
-            cm, pres, recall, f1, acc = get_metrics(total_actuals, total_predictions)
+        if idx % log_interval == 0:
+            loss = loss.item()
+            # step = idx // 100 * (epoch + 1)
+            mlflow.log_metric("loss", f"{loss:2f}", step=idx)
+            mlflow.log_metric("accuracy", f"{acc_metric:2f}", step=idx)
 
-            mlflow.log_metric("loss", f"{total_loss.cpu().data.numpy():2f}", step=idx)
-            mlflow.log_metric("accuracy", f"{acc:2f}", step=idx)
-
-            elapsed = time.time() - start_time
             print(
                 "| epoch {:3d} | {:5d}/{:5d} batches "
                 "| accuracy {:8.3f} "
                 "| f1-score {:8.3f} "
                 "| loss {:8.3f}".format(
                     epoch, idx, len(dataloader), 
-                    acc,
+                    acc_metric,
                     f1,
-                    total_loss / log_interval
+                    loss
                 )
             )
-            print_cf(*cm)
-            log_data = append_log(log_data, epoch, idx, "train", 
-                                  pres, recall, f1, acc, total_loss / log_interval)
-                            #    block_size, learning_rate, n_embd, n_head, n_layer, dropout)
-            # total_acc, total_count, 
-            total_loss = 0
-            total_label = 0
-            total_label_ones = 0
-            total_label_zeros = 0
-            total_predictions = torch.tensor([]).to(device)
-            total_actuals = torch.tensor([]).to(device)
-            start_time = time.time()
-    return log_data       
 
-def evaluate(dataloader, model, loss_fn, device):
+def evaluate(dataloader, model, loss_fn, metrics_fn, device, epoch):
     model.eval()
     total_loss = torch.tensor([]).to(device)
     total_predictions = torch.tensor([]).to(device)
@@ -122,15 +99,47 @@ def evaluate(dataloader, model, loss_fn, device):
             label = label.to(device)
             
             predicted_label = model(idx_head, idx_body)
+
             loss = loss_fn(predicted_label, label)
             total_loss = torch.cat([total_loss, torch.tensor([loss]).to(device)])
+
             total_predictions = torch.cat([total_predictions, predicted_label.argmax(1)])
             total_actuals = torch.cat([total_actuals, label])
+                
+    [tn,fp,fn,tp], pres, recall, f1, acc_metric = get_cm_metrics(metrics_fn(total_predictions, total_actuals))
+    avg_loss = torch.mean(total_loss)
+    mlflow.log_metric("eval_loss", f"{avg_loss.cpu().data.numpy():2f}", step=epoch)
+    mlflow.log_metric("eval_accuracy", f"{acc_metric:2f}", step=epoch)
 
-            mlflow.log_metric("eval_loss", f"{torch.mean(total_loss).cpu().data.numpy():2f}", step=idx)
-            mlflow.log_metric("eval_accuracy", f"{0.2:2f}", step=idx)
+    print(
+                "| epoch {:3d} "
+                "| accuracy {:8.3f} "
+                "| f1-score {:8.3f} "
+                "| loss {:8.3f}".format(
+                    epoch, 
+                    acc_metric,
+                    f1,
+                    avg_loss
+                )
+            )
 
-    return *get_metrics(total_actuals, total_predictions), torch.mean(total_loss)
+def get_cm_metrics(confusion_matrix):
+    tp = confusion_matrix[1][1]
+    tn = confusion_matrix[0][0]
+    fp = confusion_matrix[0][1]
+    fn = confusion_matrix[1][0]
+
+    pres = tp/(tp+fp)
+    recall = tp/(tp+fn)
+    f1 = 2*((pres*recall)/(pres+recall))
+    acc = (tp+tn) / (tp+tn+fp+fn)
+    
+    if pres.isnan(): pres = torch.tensor(0)
+    if recall.isnan(): recall = torch.tensor(0)
+    if f1.isnan(): f1 = torch.tensor(0)
+    if acc.isnan(): acc = torch.tensor(0)
+
+    return [tn,fp,fn,tp], pres, recall, f1, acc
 
 def get_metrics(act, pred):
     tp = ((act==1) & (pred ==1)).sum()
