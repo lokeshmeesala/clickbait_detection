@@ -2,7 +2,7 @@
 
 ![Alt text](https://github.com/lokeshmeesala/clickbait_detection/blob/dev/project_poster.png)
 
-Overview
+### Overview
 
 This project implements a CrossEncoder model for text classification using PyTorch and MLflow for experiment tracking. The model architecture is based on Transformers and includes self-attention and cross-attention mechanisms. The project consists of three main files:
 
