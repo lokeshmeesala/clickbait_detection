@@ -25,7 +25,9 @@ utils.py: Provides utility functions for data handling, tokenization, data loadi
 ### Setup Instructions
 
 1. Install the required dependencies:
-   pip install -r requirements.txt
+
+      pip install -r requirements.txt
+
 2. Prepare your dataset and update the file paths in params.yaml accordingly.
-3. Run the training script:
+4. Run the training script:
    python run.py
