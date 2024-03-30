@@ -24,7 +24,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 params = utility.load_yaml('./params.yaml')
 tokenizer = utility.load_tokenizer(params["checkpoint"])
-# tokenize_function = utility.tokenize_function
 vocab_size = tokenizer.vocab_size
 
 print("device", device)
@@ -33,15 +32,12 @@ mlflow.login()
 mlflow.set_experiment("/mlflow-clickbait-tracker")
 
 
-print("vocab_size", vocab_size)
 enc_model = CrossEncoder(vocab_size)
 enc_model = enc_model.to(device)
 optimizer = torch.optim.AdamW(enc_model.parameters(), lr=params["learning_rate"])
 loss_fn = torch.nn.CrossEntropyLoss()
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
 EPOCHS = params["epochs"]  
-scheduler_thres = 0.0
-# metric_fn = Accuracy(task="binary", num_classes=2).to(device)
 metric_fn = ConfusionMatrix(task="binary", num_classes=2).to(device)
 
 
@@ -79,8 +75,4 @@ with mlflow.start_run() as run:
 
     time_stamp = datetime.now().strftime("%m_%d_%HH_%MM_%SS")
     torch.save(enc_model, "model_checkpoints/custom_models/model_"+time_stamp+".pt")
-
     mlflow.pytorch.log_model(enc_model, "model")
-
-# with open("logs/model_summary_"+time_stamp+".txt", "w") as f:
-#     f.write(repr(enc_model))
