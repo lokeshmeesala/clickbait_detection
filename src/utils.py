@@ -1,31 +1,39 @@
 import pandas as pd
-import numpy as np
-import math
-import json
-import time
 import yaml
 import os
 import mlflow
 import torch
-import torch.nn as nn
-from torch.nn import functional as F
-
+import logging
 from sklearn.model_selection import train_test_split
-from datasets import load_dataset, Dataset, DatasetDict
-from transformers import AutoTokenizer, DataCollatorWithPadding
+from datasets import Dataset, DatasetDict
+from transformers import AutoTokenizer
 from torch.utils.data.dataloader import DataLoader
-
-
 
 
 custom_random_seed = 1337
 
 class DataHandler:
     def __init__(self, params, tokenizer) -> None:
+        """
+        Initialize the DataHandler class with parameters and tokenizer.
+
+        Args:
+        - params (dict): dictionary of config parameters.
+        - tokenizer: tokenizer instance.
+        """
         self.params = params
         self.tokenizer = tokenizer
         
     def custom_collate_fn(batch):
+        """
+        Custom collate function for DataLoader to handle batch sequence padding.
+
+        Args:
+        - batch (list): A batch of inputs, each sample contains a sequence and label.
+
+        Returns:
+        - dict: padded inputs and labels.
+        """
         input_ids_seq1 = [torch.tensor(item["input_ids_seq1"]) for item in batch]
         attention_masks_seq1 = [torch.tensor(item["attention_mask_seq1"]) for item in batch]
         input_ids_seq2 = [torch.tensor(item["input_ids_seq2"]) for item in batch]
@@ -47,6 +55,15 @@ class DataHandler:
         }
     
     def tokenize_function(example):
+        """
+        Tokenize the given example.
+
+        Args:
+        - example: A dictionary containing "headline", "body", and "label" keys.
+
+        Returns:
+        - dict: A dictionary containing tokenized sequences and label.
+        """
         encoded_seq1 = DataHandler.tokenizer(example["headline"], truncation=True, max_length=640)
         encoded_seq2 = DataHandler.tokenizer(example["body"], truncation=True, max_length=640)
         return {
@@ -57,34 +74,43 @@ class DataHandler:
             "label": torch.tensor(example["label"])}
 
     def prepare_data_loader(self):
+        """
+        Prepare data loader for training and testing datasets.
+
+        Returns:
+        - tuple: A tuple containing train and test DataLoader objects.
+        """
         tokenized_datasets_path = self.params["tokenized_datasets_path"]
         if os.path.exists(tokenized_datasets_path):
-            print(f"The file at {tokenized_datasets_path} exists.")
+            logging.info(f"The file at {tokenized_datasets_path} exists.")
+
             tokenized_datasets = torch.load(tokenized_datasets_path)
         else:
             datasets_train_test = load_data(self.params["data_path"])
-            print(f"The file at {tokenized_datasets_path} does not exist.")
+            logging.info(f"The file at {tokenized_datasets_path} does not exists.")
+
             tokenized_datasets = datasets_train_test.map(self.tokenize_function, batched=True)
             torch.save(tokenized_datasets, tokenized_datasets_path)
 
         train_data_iter = tokenized_datasets['train'].remove_columns(['id', 'headline', 'body'])
         test_data_iter = tokenized_datasets['test'].remove_columns(['id', 'headline', 'body'])
 
+        logging.info(f"Creating Dataloaders")
         train_dataloader = DataLoader(train_data_iter, shuffle=True, batch_size=self.params["batch_size"], collate_fn=DataHandler.custom_collate_fn)
         test_dataloader = DataLoader(test_data_iter, shuffle=False, batch_size=self.params["batch_size"], collate_fn=DataHandler.custom_collate_fn)
 
         return train_dataloader, test_dataloader
     
 def load_tokenizer(model_path):
+    """Loads the tokenizer from hugging face checkpoint"""
     tokenizer = AutoTokenizer.from_pretrained(model_path, return_tensors='pt', use_fast=False)
     return tokenizer
 
 def load_data(data_path):
+    """Reads the csv from the given path and creates dataset dicts"""
+    logging.info(f"Reading Data from the path {data_path}")
     click_bait_data = pd.read_csv(data_path)
-    # click_bait_data.rename({'truthClass': 'label'}, inplace=True, axis=1)
     train_data, test_data = train_test_split(click_bait_data, test_size=0.20, random_state = custom_random_seed, stratify=click_bait_data['label'])
-   #print("Train\n",train_data.label.value_counts(normalize=True))
-   #print("Test\n",test_data.label.value_counts(normalize=True))
     
     datasets_train_test = DatasetDict({
     "train": Dataset.from_pandas(train_data),
@@ -93,6 +119,18 @@ def load_data(data_path):
     return datasets_train_test
 
 def train(dataloader, model, optimizer, loss_fn, metrics_fn, epoch, device):
+    """Trains the given model using the inputs from dataloader
+    
+    Returns:
+        - dataloader: A dataset loader, it creates batches.
+        - model: A Cross Encoder Model
+        - optimizer: To perform gradient descent.
+        - loss_fn: Calculate loss
+        - metrics_fn: Calculate metrics
+        - epoch: current epoch
+        - device: cuda or cpu
+    """
+    logging.info(f"Training the model")
     model.train()
     log_interval = 100
     for idx, batch in enumerate(dataloader):
@@ -125,8 +163,7 @@ def train(dataloader, model, optimizer, loss_fn, metrics_fn, epoch, device):
             mlflow.log_metric("train_pres", f"{pres:2f}", step=epoch)
             mlflow.log_metric("train_recall", f"{recall:2f}", step=epoch)
 
-            print(
-                "| epoch {:3d} | {:5d}/{:5d} batches "
+            logging.info("| epoch {:3d} | {:5d}/{:5d} batches "
                 "| accuracy {:8.3f} "
                 "| f1-score {:8.3f} "
                 "| loss {:8.3f}".format(
@@ -134,10 +171,20 @@ def train(dataloader, model, optimizer, loss_fn, metrics_fn, epoch, device):
                     acc_metric,
                     f1,
                     loss
-                )
-            )
+                ))
 
 def evaluate(dataloader, model, loss_fn, metrics_fn, device, epoch):
+    """Evaluates the given model using the inputs from dataloader
+    
+    Returns:
+        - dataloader: A dataset loader, it creates batches.
+        - model: A Cross Encoder Model
+        - loss_fn: Calculate loss
+        - metrics_fn: Calculate metrics
+        - device: cuda or cpu
+        - epoch: current epoch
+    """
+    logging.info(f"Evaluating the model")
     model.eval()
     total_loss = torch.tensor([]).to(device)
     total_predictions = torch.tensor([]).to(device)
@@ -169,8 +216,7 @@ def evaluate(dataloader, model, loss_fn, metrics_fn, device, epoch):
     mlflow.log_metric("eval_pres", f"{pres:2f}", step=epoch)
     mlflow.log_metric("eval_recall", f"{recall:2f}", step=epoch)
 
-    print(
-                "| epoch {:3d} "
+    logging.info("| epoch {:3d} "
                 "| accuracy {:8.3f} "
                 "| f1-score {:8.3f} "
                 "| loss {:8.3f}".format(
@@ -178,10 +224,10 @@ def evaluate(dataloader, model, loss_fn, metrics_fn, device, epoch):
                     acc_metric,
                     f1,
                     avg_loss
-                )
-            )
+                ))
 
 def get_cm_metrics(confusion_matrix):
+    """Calculate classification metrics from the given confusion matrix array."""
     tp = confusion_matrix[1][1]
     tn = confusion_matrix[0][0]
     fp = confusion_matrix[0][1]
@@ -205,6 +251,8 @@ Act -ve  {tn}              {fp}
 Act +ve  {fn}              {tp}""")
  
 def load_yaml(config_file_name):
+    """Read the yaml file"""
+    logging.info(f"Reading yaml from {config_file_name}")
     with open(config_file_name, 'r') as file:
         config = yaml.safe_load(file)
     return config

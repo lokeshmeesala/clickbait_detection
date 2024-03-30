@@ -1,32 +1,30 @@
-import pandas as pd
-import numpy as np
-import math
-import json
 import mlflow
 import time
-from datetime import datetime
+import logging
 import torch
-import torch.nn as nn
-from torchmetrics import Accuracy, ConfusionMatrix
-from torch.nn import functional as F
-import os
-from datasets import load_dataset, Dataset, DatasetDict
-from transformers import AutoTokenizer, DataCollatorWithPadding
-from torch.utils.data.dataloader import DataLoader
-
+from datetime import datetime
+from torchmetrics import ConfusionMatrix
 import src.utils as utility
 from src.models.cross_model import CrossEncoder
 
 import pandas as pd
 torch.manual_seed(1337)
+
+logging.basicConfig(filename=datetime.now().strftime('logs/run_%Y_%m_%d_%H_%M_%S.log'), 
+                    filemode='w',
+                    level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+                    datefmt='%Y-%m-%d %H:%M:%S')
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
 params = utility.load_yaml('./params.yaml')
 tokenizer = utility.load_tokenizer(params["checkpoint"])
 vocab_size = tokenizer.vocab_size
-
 print("device", device)
+
+logging.info(f'device {device}')
+logging.info(f'params {params}')
+logging.info(f'vocab_size {vocab_size}')
 
 mlflow.login()
 mlflow.set_experiment("/mlflow-clickbait-tracker")
@@ -39,14 +37,8 @@ loss_fn = torch.nn.CrossEntropyLoss()
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
 EPOCHS = params["epochs"]  
 metric_fn = ConfusionMatrix(task="binary", num_classes=2).to(device)
-
-
 data_handler = utility.DataHandler(params, tokenizer)
-
 train_dataloader, test_dataloader = data_handler.prepare_data_loader()
-
-
-
 
 with mlflow.start_run() as run:
     mlflow_params = {

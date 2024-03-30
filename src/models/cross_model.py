@@ -1,30 +1,16 @@
-import pandas as pd
-import numpy as np
-import math
-import json
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from datasets import load_dataset, Dataset, DatasetDict
-from transformers import AutoTokenizer, DataCollatorWithPadding
-from torch.utils.data.dataloader import DataLoader
 from src.utils import *
 
 params = load_yaml('./params.yaml')
-
 n_embd = params['n_embd']
 dropout = params['dropout']
 block_size = params['block_size']
 n_head = params['n_head']
 n_layer = params['n_layer']
-
-
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 torch.manual_seed(1337)
-print(f"DEVICE {device}")
 
 class SA_Head(nn.Module):
     """ 
