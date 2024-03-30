@@ -21,3 +21,11 @@ utils.py: Provides utility functions for data handling, tokenization, data loadi
 - It includes a DataHandler class for preparing data loaders.
 - custom collate functions for DataLoader.
 - functions for training, evaluating, metric calculation and loading YAML configuration files and tokenizers.
+
+### Setup Instructions
+
+1. Install the required dependencies:
+   pip install -r requirements.txt
+2. Prepare your dataset and update the file paths in params.yaml accordingly.
+3. Run the training script:
+   python run.py
