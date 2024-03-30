@@ -36,7 +36,7 @@ print("vocab_size", vocab_size)
 enc_model = CrossEncoder(vocab_size)
 enc_model = enc_model.to(device)
 optimizer = torch.optim.AdamW(enc_model.parameters(), lr=params["learning_rate"])
-criterion = torch.nn.CrossEntropyLoss()
+loss_fn = torch.nn.CrossEntropyLoss()
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
 EPOCHS = params["epochs"]  
 scheduler_metric = None
@@ -58,7 +58,7 @@ with mlflow.start_run() as run:
         "epochs": EPOCHS,
         "learning_rate": params["learning_rate"],
         "batch_size": params["batch_size"],
-        "loss_function": criterion.__class__.__name__,
+        "loss_function": loss_fn.__class__.__name__,
         "metric_function": "Accuracy",
         "optimizer": "AdamW",
     }
@@ -75,8 +75,8 @@ with mlflow.start_run() as run:
 
     for epoch in range(1, EPOCHS + 1):
         epoch_start_time = time.time()
-        log_data = utility.train(train_dataloader, enc_model, optimizer, criterion, epoch, device, log_data)
-        test_cm, test_pres, test_recall, test_f1, test_acc, test_loss = utility.evaluate(test_dataloader, enc_model, criterion, device)
+        log_data = utility.train(train_dataloader, enc_model, optimizer, loss_fn, epoch, device, log_data)
+        test_cm, test_pres, test_recall, test_f1, test_acc, test_loss = utility.evaluate(test_dataloader, enc_model, loss_fn, device)
         
         log_data = utility.append_log(log_data, epoch, 0, "test", 
                                     test_pres, test_recall, test_f1, test_acc, test_loss)

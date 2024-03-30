@@ -37,7 +37,7 @@ def load_data(data_path):
     })
     return datasets_train_test
 
-def train(dataloader, model, optimizer, criterion, epoch, device, log_data):
+def train(dataloader, model, optimizer, loss_fn, epoch, device, log_data):
     model.train()
     # total_acc, total_count, 
     total_loss = 0
@@ -63,7 +63,7 @@ def train(dataloader, model, optimizer, criterion, epoch, device, log_data):
         total_label_ones += label.sum()
         total_label += len(label)
         total_label_zeros += len(label) - label.sum()
-        loss = criterion(predicted_label, label)
+        loss = loss_fn(predicted_label, label)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
         optimizer.step()
@@ -104,7 +104,7 @@ def train(dataloader, model, optimizer, criterion, epoch, device, log_data):
             start_time = time.time()
     return log_data       
 
-def evaluate(dataloader, model, criterion, device):
+def evaluate(dataloader, model, loss_fn, device):
     model.eval()
     total_loss = torch.tensor([]).to(device)
     total_predictions = torch.tensor([]).to(device)
@@ -122,7 +122,7 @@ def evaluate(dataloader, model, criterion, device):
             label = label.to(device)
             
             predicted_label = model(idx_head, idx_body)
-            loss = criterion(predicted_label, label)
+            loss = loss_fn(predicted_label, label)
             total_loss = torch.cat([total_loss, torch.tensor([loss]).to(device)])
             total_predictions = torch.cat([total_predictions, predicted_label.argmax(1)])
             total_actuals = torch.cat([total_actuals, label])
